@@ -3,3 +3,51 @@ $icon-font-path: '~bootstrap-sass/assets/fonts/bootstrap/';
 @import '~bootstrap-sass/assets/stylesheets/_bootstrap.scss';
 
 // can add Boostrap overrides, additional Sass/CSS below...
+
+ul
+{ 
+    list-style-type: none;
+    padding: 0px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.recipe-list li .edit {
+    display: none;
+}
+
+.recipe-list li.editing .view {
+    display: none;
+}
+
+.recipe-list li.editing .edit {
+    display: block;
+}
+.recipe-box {
+    height: 1.5em;
+    border-color: gray; 
+    border-width:1px; 
+    border-radius: 2px; 
+    border-style: solid;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    margin-left: 2px;
+}
+
+.week .edit {
+    display: none;
+}
+
+.week  .editing .view {
+    display: none;
+}
+
+.week .editing .edit {
+    display: block;
+}
+
+.week-number {
+    height: 1.5em;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
