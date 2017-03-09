@@ -1,4 +1,4 @@
-module Main exposing (..)
+port module Menu exposing (..)
 
 import Dom exposing (focus)
 import Html exposing (..)
@@ -7,6 +7,7 @@ import Html.Events exposing (..)
 import Json.Decode as Json
 import Debug exposing (..)
 import Task
+import Regex
 
 
 -- APP
@@ -240,6 +241,16 @@ getRecipe recipeId =
     in
       Maybe.withDefault initRecipe recipe
 
+searchRecipe : String -> List Recipe
+searchRecipe key =
+    let
+        pattern = Regex.caseInsensitive (Regex.regex ("^" ++ key))
+        startsWith recipe = 
+            Regex.contains pattern recipe.name
+    in
+      List.filter startsWith recipes
+
+
 -- VIEW
 -- Html is defined as: elem [ attribs ][ children ]
 -- CSS can be applied via class names or inline style attrib
@@ -353,3 +364,10 @@ viewDay week day =
                 []
             ]
         ]
+
+-- viewRecipeResults : String -> Html Msg
+-- viewRecipeResults key = 
+--     let
+     
+--     in
+--       recipeList result
