@@ -8,6 +8,7 @@ import Json.Decode as Json
 import Debug exposing (..)
 import Task
 import Regex
+import Autocomplete
 
 
 -- APP
@@ -37,7 +38,9 @@ type alias Model =
     , recipes : List Recipe
     , recipeName : String
     , recipeId : Int
-    , dayRecipeName : String
+    , recipeResults : List Recipe
+    , selectedResultRecipe : Int
+    , autoState: Autocomplete.State
     }
 
 
@@ -48,7 +51,9 @@ model =
     , week = initWeek
     , recipes = []
     , recipeName = ""
-    , dayRecipeName = ""
+    , recipeResults = []
+    , selectedResultRecipe = -1
+    , autoState = Autocomplete.empty
     }
 
 
@@ -56,11 +61,15 @@ type alias Recipe =
     { id : Int
     , name : String
     , editing : Bool
+    , selected : Bool
     }
 
 
 type alias Day =
-    { id : Int, recipe : Recipe, editing : Bool }
+    { id : Int
+    , recipe : Recipe
+    , editing : Bool
+    }
 
 
 type alias Week =
@@ -82,19 +91,16 @@ initWeek =
 
 initDay : Int -> Day
 initDay id =
-    let
-      debug = log "ID" id
-    in
-        { id = id, recipe = initRecipe, editing = False }
+    { id = id, recipe = initRecipe, editing = False}
 
 initRecipe : Recipe
 initRecipe =
-    { id = -1, name = "", editing = False }
+    { id = -1, name = "", editing = False, selected = False }
 
 
 newRecipe : Int -> String -> Recipe
 newRecipe id name =
-    { id = id, name = name, editing = False }
+    { id = id, name = name, editing = False, selected = False }
 
 
 
@@ -108,8 +114,9 @@ type Msg
     | EditRecipe Int Bool
     | UpdateRecipeName String
     | EditDayRecipe Int Bool
-    | UpdateDayRecipeName String
     | UpdateDayRecipe Int String
+    | SelectDayRecipe Int String
+    | SelectResultRecipe
 
 
 
@@ -121,9 +128,7 @@ update msg model =
 
         UpdateRecipeName name ->
             { model | recipeName = name } ! []
-        
-        UpdateDayRecipeName name ->
-            { model | dayRecipeName = name } ! []
+
         AddRecipe ->
             { model
                 | recipeId = model.recipeId + 1
@@ -162,52 +167,101 @@ update msg model =
 
         EditDayRecipe dayId isEditing ->
             let
-              updateDay day =
-                if (day.id == dayId) then
-                    { day | editing = isEditing }
-                else
-                    day
-              updateWeek week =
-                {week | days = List.map updateDay week.days}
-
               focus =
                     Dom.focus ("day-recipe-" ++ toString dayId)
-              debug = log "focus" focus
             in
-              { model | week = updateWeek model.week } 
+              { model | week = (editDayRecipeInWeek model.week dayId isEditing), recipeResults = []} 
                 ! [ Task.attempt (\_ -> NoOp) focus]
         
         UpdateDayRecipe dayId name ->
             let
-                d1 = log "name" name
-                oldWeek = model.week
-                newWeek = {oldWeek | days = List.map updateDay oldWeek.days}
-                oldDay = Maybe.withDefault (initDay dayId) (find (\n -> n.id == dayId) model.week.days)
-                oldRecipe =  oldDay.recipe
-                newRecipe = 
-                    { oldRecipe | name = name}
-                
-                updateDay d = 
-                    if (d.id == dayId) then 
-                        {d | recipe = newRecipe }
-                    else
-                        d
+                recipeResults = searchRecipe name
             in
-              {model | week = newWeek} ! []
+                {model | week = (updateDayRecipeInWeek model.week dayId name), recipeResults = recipeResults} ! []
+
+        SelectDayRecipe dayId name ->
+            let 
+                week = (updateDayRecipeInWeek model.week dayId name)
+            in
+                {model | week = (editDayRecipeInWeek week dayId False)} ! []
+        SelectResultRecipe ->
+            let
+                next = getNextResultRecipe model.selectedResultRecipe model.recipeResults
+                debug = log "Test" next.id
+                updateRecipe recipe =
+                    if (recipe.id == next.id) then
+                        {recipe | selected = True}
+                    else 
+                        {recipe | selected = False}
+                        
+            in
+              {model | recipeResults = List.map updateRecipe model.recipeResults, selectedResultRecipe = next.id} ! []
+
+getNextResultRecipe : Int -> List Recipe -> Recipe
+getNextResultRecipe previousId resultRecipes =
+    let
+        next = Maybe.withDefault initRecipe (nextTo (\n -> n.id == previousId) resultRecipes)
+        debug = log "getNextResultRecipe" next
+    in
+        if (next.id == -1 && List.length resultRecipes > 0) then
+            Maybe.withDefault initRecipe (List.head resultRecipes)
+        else
+            next
+
+nextTo : (a -> Bool) -> List a -> Maybe a
+nextTo predicate list =
+    case list of
+        [] ->
+            Nothing
+        first :: rest ->
+            if predicate first then
+                List.head rest
+            else 
+                find predicate rest
+
+editDayRecipeInWeek : Week -> Int -> Bool -> Week
+editDayRecipeInWeek week dayId isEditing =
+    let
+        updateDay day =
+        if (day.id == dayId) then
+            { day | editing = isEditing }
+        else
+            { day | editing = False }
+        updateWeek week =
+        {week | days = List.map updateDay week.days}
+
+        focus =
+            Dom.focus ("day-recipe-" ++ toString dayId)
+    in
+        updateWeek week
+        
+
+updateDayRecipeInWeek : Week -> Int -> String -> Week
+updateDayRecipeInWeek week dayId name =
+    let
+        newWeek = {week | days = List.map updateDay week.days}
+        oldDay = Maybe.withDefault (initDay dayId) (find (\n -> n.id == dayId) model.week.days)
+        oldRecipe =  oldDay.recipe
+        newRecipe = 
+            { oldRecipe | name = name}
+        
+        updateDay d = 
+            if (d.id == dayId) then 
+                {d | recipe = newRecipe}
+            else
+                d
+    in
+        newWeek
 
 recipes : List Recipe
 recipes =
-    [ { id = 1, name = "Pasta", editing = False }
-    , { id = 2, name = "Taco", editing = False }
-    , { id = 3, name = "Lasagne", editing = False }
-    , { id = 4, name = "Tandoori", editing = False }
+    [ { id = 1, name = "Pasta", editing = False, selected = False }
+    , { id = 2, name = "Taco", editing = False, selected = False }
+    , { id = 3, name = "Lasagne", editing = False, selected = False }
+    , { id = 4, name = "Tandoori", editing = False, selected = False }
+    , { id = 5, name = "Pizza White", editing = False, selected = False }
+    , { id = 6, name = "Pizza Red", editing = False, selected = False }
     ]
-
-
-numberOfWeeks : Int
-numberOfWeeks =
-    4
-
 
 onEnter : Msg -> Attribute Msg
 onEnter msg =
@@ -220,13 +274,24 @@ onEnter msg =
     in
         on "keydown" (Json.andThen isEnter keyCode)
 
+onArrowDown : Msg -> Attribute Msg
+onArrowDown msg =
+    let 
+        
+        isArrowDown code =
+            if code == 40 then
+                Json.succeed msg
+            else 
+                Json.fail "not Arrow down key"
+    in 
+        on "keydown" (Json.andThen isArrowDown keyCode)
+
 
 find : (a -> Bool) -> List a -> Maybe a
 find predicate list =
     case list of
         [] ->
             Nothing
-
         first :: rest ->
             if predicate first then
                 Just first
@@ -237,7 +302,6 @@ getRecipe : Int -> Recipe
 getRecipe recipeId =
     let
       recipe = find (\n -> n.id == recipeId) recipes
-      debug = log "recipe" recipe
     in
       Maybe.withDefault initRecipe recipe
 
@@ -248,7 +312,9 @@ searchRecipe key =
         startsWith recipe = 
             Regex.contains pattern recipe.name
     in
-      List.filter startsWith recipes
+        if (String.length key) > 2 then 
+            List.filter startsWith recipes
+        else []
 
 
 -- VIEW
@@ -261,23 +327,7 @@ view model =
     div [ class "container", style [ ( "margin-top", "30px" ), ( "text-align", "center" ) ] ]
         [ -- inline CSS (literal)
           div [ class "row" ]
-            [ --div [ class "col-lg-2" ]
-            --     [ h5 [] [ text "Recipes:" ]
-            --     , input
-            --         [ placeholder "Add new recipe"
-            --         , value model.recipeName
-            --         , onInput UpdateRecipeName
-            --         , onEnter AddRecipe
-            --         ]
-            --         []
-            --     , recipeList model.recipes
-            --     ]
-            div [] [ calender model ]
-            -- , div []
-            --     [ input [] []
-
-            --     ]
-             ]
+            [ div [] [ calender model ] ]
         ]
 
 
@@ -298,7 +348,7 @@ calender : Model -> Html Msg
 calender model =
     div []
         [ calenderHeader
-        , viewWeek model.week
+        , viewWeek model
         ]
 
 
@@ -309,7 +359,7 @@ recipeOption recipe =
 
 recipeSingle : Recipe -> Html Msg
 recipeSingle recipe =
-    li [ classList [ ( "editing", recipe.editing) ]]
+    li [ classList [ ("recipe", True), ("editing", recipe.editing) ]]
         [ div
             [ class "view" ]
             [ label
@@ -321,7 +371,7 @@ recipeSingle recipe =
             , value recipe.name
             , id ("recipe-" ++ toString recipe.id)
             , onInput (UpdateRecipe recipe.id)
-            , onBlur (EditRecipe recipe.id False)
+            --, onBlur (EditRecipe recipe.id False)
             , onEnter (EditRecipe recipe.id False)
             ]
             []
@@ -332,15 +382,15 @@ recipeList : List Recipe -> Html Msg
 recipeList recipes =
     ul [ class "recipe-list" ] (List.map recipeSingle recipes)
 
-viewWeek : Week -> Html Msg
-viewWeek week =
+viewWeek : Model -> Html Msg
+viewWeek model =
     div [ class "week" ]
-        [ span [] (List.map (viewDay week) week.days)
+        [ span [] (List.map (viewDay model) model.week.days)
         ]
 
 
-viewDay : Week -> Day -> Html Msg
-viewDay week day =
+viewDay : Model -> Day -> Html Msg
+viewDay model day =
     div
         [ classList [( "day", True ), ( "editing", day.editing ) ] ]
         [ div
@@ -358,16 +408,27 @@ viewDay week day =
                 , autofocus True
                 , value day.recipe.name
                 , onEnter (EditDayRecipe day.id False)
-                , onBlur (EditDayRecipe day.id False)
+                --, onBlur (EditDayRecipe day.id False)
                 , onInput (UpdateDayRecipe day.id)
+                , onArrowDown SelectResultRecipe
                 ]
                 []
             ]
+        , div 
+            [ class "recipe-results" ]
+            [ viewRecipeResults day.id model.recipeResults ]
         ]
 
--- viewRecipeResults : String -> Html Msg
--- viewRecipeResults key = 
---     let
-     
---     in
---       recipeList result
+viewRecipeResults : Int -> List Recipe -> Html Msg
+viewRecipeResults dayId recipes = 
+    ul [ class "edit"] (List.map (viewSingleRecipeResult dayId) recipes)
+
+viewSingleRecipeResult : Int -> Recipe -> Html Msg
+viewSingleRecipeResult dayId recipe =
+    li  [ classList [("selected", recipe.selected)]
+        , onClick (SelectDayRecipe dayId recipe.name)
+        ]
+        [ div
+            []
+            [ text recipe.name ]
+        ]

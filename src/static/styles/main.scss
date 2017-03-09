@@ -45,7 +45,7 @@ ul
     display: none;
 }
 
-.week  .editing .view {
+.week .editing .view {
     display: none;
 }
 
@@ -62,3 +62,18 @@ ul
     float: left
 }
 
+.recipe-results {
+    min-height: 2em;
+    margin: 2px;
+    border-width:1px; 
+    border-radius: 2px; 
+    width: 90%;
+}
+
+.recipe-results ul li div:hover {
+    background-color: deepskyblue;
+}
+
+.selected {
+    background-color: red;
+}
