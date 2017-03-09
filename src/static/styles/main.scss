@@ -3,6 +3,7 @@ $icon-font-path: '~bootstrap-sass/assets/fonts/bootstrap/';
 @import '~bootstrap-sass/assets/stylesheets/_bootstrap.scss';
 
 // can add Boostrap overrides, additional Sass/CSS below...
+$day-width: (100%)/7 - .5%;
 
 ul
 { 
@@ -23,15 +24,21 @@ ul
 .recipe-list li.editing .edit {
     display: block;
 }
-.recipe-box {
-    height: 1.5em;
+
+.recipe label {
+    min-height: 2em;
     border-color: gray; 
     border-width:1px; 
     border-radius: 2px; 
     border-style: solid;
-    margin-top: 10px;
-    margin-bottom: 10px;
-    margin-left: 2px;
+    margin: 2px;
+    width: 90%;
+}
+
+.recipe input {
+    min-height: 2em;
+    margin: 2px;
+    width: 90%;
 }
 
 .week .edit {
@@ -46,8 +53,12 @@ ul
     display: block;
 }
 
-.week-number {
-    height: 1.5em;
-    margin-top: 10px;
-    margin-bottom: 10px;
+.no-padding {
+    padding: 0;
 }
+
+.day {
+    width: $day-width;
+    float: left
+}
+
