@@ -130,6 +130,7 @@ type Msg
     | Reset
     | HandleEscape
     | OnFocus
+    | EditNextDayRecipe Int Int
 
 
 
@@ -158,8 +159,26 @@ update msg model =
                     |> removeSelection
             in
                 newModel ! [ Task.attempt (\_ -> NoOp) focus]
-             
-        
+        EditNextDayRecipe dayId nextDayId ->
+            let
+                debug = log "focus" ("recipe-day-input-" ++ toString nextDayId)
+                selectedWeek =  
+                  case model.selectedRecipe of
+                      Nothing ->
+                           model.week
+                      Just recipe ->
+                          (updateDayRecipeInWeek model.week dayId recipe)
+                d1 = log "selectedWeek" selectedWeek
+                newWeek = (editDayRecipeInWeek selectedWeek nextDayId True)
+                newModel =
+                  {model | week = newWeek} 
+                      |> resetInput
+                      |> removeSelection
+
+                focus =
+                      Dom.focus ("recipe-day-input-" ++ (toString nextDayId)) 
+            in
+                newModel ! [ Task.attempt (\_ -> NoOp) focus]
         UpdateDayRecipe dayId ->
             let
               debug = log "UpdateDayRecipe" toString dayId
@@ -270,9 +289,6 @@ removeSelection model =
 
 resetMenu : Model -> Model
 resetMenu model =
-    let
-        degub = log "Test" model.showMenu
-    in
         { model
             | autoState = Autocomplete.empty
             , showMenu = False
@@ -316,12 +332,10 @@ editDayRecipeInWeek week dayId isEditing =
         if (day.id == dayId) then
             { day | editing = isEditing }
         else
-            { day | editing = False }
+            day
+         --   { day | editing = False }
         updateWeek week =
         {week | days = List.map updateDay week.days}
-
-        focus =
-            Dom.focus ("recipe-day-input" ++ toString dayId)
     in
         updateWeek week
         
@@ -360,17 +374,16 @@ onEnter msg =
     in
         on "keydown" (Json.andThen isEnter keyCode)
 
-onArrowDown : Msg -> Attribute Msg
-onArrowDown msg =
+onTab : Msg -> Attribute Msg
+onTab msg =
     let 
-        
-        isArrowDown code =
-            if code == 40 then
+        isTab code =
+            if code == 9 then
                 Json.succeed msg
-            else 
-                Json.fail "not Arrow down key"
-    in 
-        on "keydown" (Json.andThen isArrowDown keyCode)
+            else
+                Json.fail "not tab key"
+    in
+        on "keydown" (Json.andThen isTab keyCode)
 
 
 find : (a -> Bool) -> List a -> Maybe a
@@ -410,11 +423,10 @@ searchRecipe key =
 
 view : Model -> Html Msg
 view model =
-        div [ class "container", style [ ( "margin-top", "30px" ), ( "text-align", "center" ) ] ]
-            [ -- inline CSS (literal)
-              div [ class "row" ]
+        div [ class "main", style [ ( "margin-top", "30px" ), ( "text-align", "center" ) ] ]
+            [
+              div []
                 [ div [] [ calender model ] 
-               -- , div [] (viewRecipeDayInput model (initDay 0))
                 ]
             ]
 
@@ -478,6 +490,7 @@ viewRecipeDayInput model day =
                     , onWithOptions "keydown" options dec
                     , onBlur (EditDayRecipe day.id False)
                     , onEnter (EditDayRecipe day.id False)
+                    , onTab (EditNextDayRecipe day.id (day.id + 1))
                     , value query
                     , id ("recipe-day-input-" ++ toString day.id)
                     , class "autocomplete-input"
