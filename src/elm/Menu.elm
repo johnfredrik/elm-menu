@@ -39,8 +39,10 @@ type alias Model =
     , recipeName : String
     , recipeId : Int
     , recipeResults : List Recipe
-    , selectedResultRecipe : Int
+    , selectedRecipe : Maybe Recipe
     , autoState: Autocomplete.State
+    , query: String
+    , showMenu: Bool
     }
 
 
@@ -52,14 +54,15 @@ model =
     , recipes = []
     , recipeName = ""
     , recipeResults = []
-    , selectedResultRecipe = -1
     , autoState = Autocomplete.empty
+    , selectedRecipe = Nothing
+    , query = ""
+    , showMenu = False
     }
 
 
 type alias Recipe =
-    { id : Int
-    , name : String
+    { name : String
     , editing : Bool
     , selected : Bool
     }
@@ -95,12 +98,12 @@ initDay id =
 
 initRecipe : Recipe
 initRecipe =
-    { id = -1, name = "", editing = False, selected = False }
+    { name = "", editing = False, selected = False }
 
 
 newRecipe : Int -> String -> Recipe
 newRecipe id name =
-    { id = id, name = name, editing = False, selected = False }
+    { name = name, editing = False, selected = False }
 
 
 
@@ -109,14 +112,20 @@ newRecipe id name =
 
 type Msg
     = NoOp
-    | AddRecipe
-    | UpdateRecipe Int String
-    | EditRecipe Int Bool
     | UpdateRecipeName String
     | EditDayRecipe Int Bool
     | UpdateDayRecipe Int String
     | SelectDayRecipe Int String
-    | SelectResultRecipe
+-- AUTOCOMPLETE
+    | SelectRecipeKeyboard String
+    | SelectRecipeMouse String
+    | SetQuery String
+    | SetAutoState Autocomplete.Msg
+    | PreviewRecipe String
+    | Wrap Bool
+    | Reset
+    | HandleEscape
+    | OnFocus
 
 
 
@@ -128,43 +137,6 @@ update msg model =
 
         UpdateRecipeName name ->
             { model | recipeName = name } ! []
-
-        AddRecipe ->
-            { model
-                | recipeId = model.recipeId + 1
-                , recipeName = ""
-                , recipes =
-                    if String.isEmpty model.recipeName then
-                        model.recipes
-                    else
-                        model.recipes ++ [ newRecipe model.recipeId model.recipeName ]
-            }
-                ! []
-
-        UpdateRecipe id name ->
-            let
-                updateRecipe recipe =
-                    if recipe.id == id then
-                        { recipe | name = name }
-                    else
-                        recipe
-            in
-                { model | recipes = List.map updateRecipe model.recipes } ! []
-
-        EditRecipe id isEditing ->
-            let
-                updateRecipe recipe =
-                    if recipe.id == id then
-                        { recipe | editing = isEditing }
-                    else
-                        recipe
-
-                focus =
-                    Dom.focus ("recipe-" ++ toString id)
-            in
-                { model | recipes = List.map updateRecipe model.recipes } 
-                    ! [ Task.attempt (\_ -> NoOp) focus]
-
         EditDayRecipe dayId isEditing ->
             let
               focus =
@@ -184,40 +156,138 @@ update msg model =
                 week = (updateDayRecipeInWeek model.week dayId name)
             in
                 {model | week = (editDayRecipeInWeek week dayId False)} ! []
-        SelectResultRecipe ->
+
+        SelectRecipeKeyboard id ->
             let
-                next = getNextResultRecipe model.selectedResultRecipe model.recipeResults
-                debug = log "Test" next.id
-                updateRecipe recipe =
-                    if (recipe.id == next.id) then
-                        {recipe | selected = True}
-                    else 
-                        {recipe | selected = False}
-                        
+                debug = log "SelectRecipeKeyboard" id
+                newModel =
+                    setQuery model id
             in
-              {model | recipeResults = List.map updateRecipe model.recipeResults, selectedResultRecipe = next.id} ! []
+                newModel ! []
+        SelectRecipeMouse id ->
+            let
+                debug = log "SelectRecipeMouse" id
+                newModel =
+                    setQuery model id
+                        |> resetMenu
+            in
+                ( newModel, Task.attempt (\_ -> NoOp) (Dom.focus "president-input") )
+        SetQuery newQuery ->
+            let
+                showMenu =
+                    not << List.isEmpty <| searchRecipe newQuery
+            in
+                {model | query = newQuery, showMenu = showMenu, selectedRecipe = Nothing } ! []
+        SetAutoState autoMsg ->
+            let
+                
+                (newState, maybeMsg ) =
+                    Autocomplete.update updateConfig autoMsg 5 model.autoState (searchRecipe model.query)
+                newModel =
+                    {model | autoState = newState}
+            in
+              case maybeMsg of
+                Nothing ->
+                    newModel ! []
+                Just updateMsg ->
+                    update updateMsg newModel
+        PreviewRecipe id ->
+            {model | selectedRecipe = Just <| (getRecipe id)} ! []
 
-getNextResultRecipe : Int -> List Recipe -> Recipe
-getNextResultRecipe previousId resultRecipes =
-    let
-        next = Maybe.withDefault initRecipe (nextTo (\n -> n.id == previousId) resultRecipes)
-        debug = log "getNextResultRecipe" next
-    in
-        if (next.id == -1 && List.length resultRecipes > 0) then
-            Maybe.withDefault initRecipe (List.head resultRecipes)
-        else
-            next
+        Wrap toTop ->
+            case model.selectedRecipe of
+                Just recipe ->
+                    update Reset model
+                Nothing ->
+                    if toTop then
+                        { model
+                            | autoState = Autocomplete.resetToLastItem updateConfig (searchRecipe model.query) 5 model.autoState
+                            , selectedRecipe = List.head <| List.reverse <| List.take 5 <| (searchRecipe model.query )
+                        }
+                            ! []
+                    else
+                        { model
+                            | autoState = Autocomplete.resetToFirstItem updateConfig (searchRecipe model.query) 5 model.autoState
+                            , selectedRecipe = List.head <| List.take 5 <| (searchRecipe model.query)
+                        }
+                            ! []
+        Reset ->
+            { model | autoState = Autocomplete.reset updateConfig model.autoState, selectedRecipe = Nothing } ! []
+        HandleEscape ->
+            let
+                validOptions =
+                    not <| List.isEmpty (searchRecipe model.query)
 
-nextTo : (a -> Bool) -> List a -> Maybe a
-nextTo predicate list =
-    case list of
-        [] ->
-            Nothing
-        first :: rest ->
-            if predicate first then
-                List.head rest
-            else 
-                find predicate rest
+                handleEscape =
+                    if validOptions then
+                        model
+                            |> removeSelection
+                            |> resetMenu
+                    else
+                        { model | query = "" }
+                            |> removeSelection
+                            |> resetMenu
+
+                escapedModel =
+                    case model.selectedRecipe of
+                        Just person ->
+                            if model.query == person.name then
+                                model
+                                    |> resetInput
+                            else
+                                handleEscape
+
+                        Nothing ->
+                            handleEscape
+            in
+                escapedModel ! [] 
+        OnFocus ->
+            model ! []
+              
+resetInput : Model -> Model
+resetInput model =
+    { model | query = "" }
+        |> removeSelection
+        |> resetMenu
+
+removeSelection : Model -> Model
+removeSelection model =
+    { model | selectedRecipe = Nothing }
+
+resetMenu : Model -> Model
+resetMenu model =
+    { model
+        | autoState = Autocomplete.empty
+        , showMenu = False
+    }
+
+updateConfig : Autocomplete.UpdateConfig Msg Recipe
+updateConfig =
+    Autocomplete.updateConfig
+        { toId = .name
+        , onKeyDown =
+            \code maybeId ->
+                if code == 38 || code == 40 then
+                    Maybe.map PreviewRecipe maybeId
+                else if code == 13 then
+                    Maybe.map SelectRecipeKeyboard maybeId
+                else
+                    Just <| Reset
+        , onTooLow = Just <| Wrap False
+        , onTooHigh = Just <| Wrap True
+        , onMouseEnter = \id -> Just <| PreviewRecipe id
+        , onMouseLeave = \_ -> Nothing
+        , onMouseClick = \_ -> Nothing
+        , separateSelections = False
+        }
+
+
+setQuery : Model -> String -> Model
+setQuery model id =
+    { model 
+        | query = .name <| getRecipe id
+        , selectedRecipe = Just <| getRecipe id
+    }
 
 editDayRecipeInWeek : Week -> Int -> Bool -> Week
 editDayRecipeInWeek week dayId isEditing =
@@ -255,12 +325,12 @@ updateDayRecipeInWeek week dayId name =
 
 recipes : List Recipe
 recipes =
-    [ { id = 1, name = "Pasta", editing = False, selected = False }
-    , { id = 2, name = "Taco", editing = False, selected = False }
-    , { id = 3, name = "Lasagne", editing = False, selected = False }
-    , { id = 4, name = "Tandoori", editing = False, selected = False }
-    , { id = 5, name = "Pizza White", editing = False, selected = False }
-    , { id = 6, name = "Pizza Red", editing = False, selected = False }
+    [ { name = "Pasta", editing = False, selected = False }
+    , { name = "Taco", editing = False, selected = False }
+    , { name = "Lasagne", editing = False, selected = False }
+    , { name = "Tandoori", editing = False, selected = False }
+    , { name = "Pizza White", editing = False, selected = False }
+    , { name = "Pizza Red", editing = False, selected = False }
     ]
 
 onEnter : Msg -> Attribute Msg
@@ -298,10 +368,10 @@ find predicate list =
             else
                 find predicate rest
 
-getRecipe : Int -> Recipe
-getRecipe recipeId =
+getRecipe : String -> Recipe
+getRecipe name =
     let
-      recipe = find (\n -> n.id == recipeId) recipes
+      recipe = find (\n -> n.name == name) recipes
     in
       Maybe.withDefault initRecipe recipe
 
@@ -324,12 +394,105 @@ searchRecipe key =
 
 view : Model -> Html Msg
 view model =
-    div [ class "container", style [ ( "margin-top", "30px" ), ( "text-align", "center" ) ] ]
-        [ -- inline CSS (literal)
-          div [ class "row" ]
-            [ div [] [ calender model ] ]
-        ]
+    let
+        options =
+            { preventDefault = True, stopPropagation = False }
 
+        dec =
+            (Json.map
+                (\code ->
+                    if code == 38 || code == 40 then
+                        Ok NoOp
+                    else if code == 27 then
+                        Ok HandleEscape
+                    else
+                        Err "not handling that key"
+                )
+                keyCode
+            )
+                |> Json.andThen
+                    fromResult
+        fromResult : Result String a -> Json.Decoder a
+        fromResult result =
+            case result of
+                Ok val ->
+                    Json.succeed val
+                Err reason ->
+                    Json.fail reason
+        menu =
+            if model.showMenu then
+                [ viewMenu model ]
+            else
+                []
+        query =
+            case model.selectedRecipe of
+                Just recipe ->
+                    recipe.name
+
+                Nothing ->
+                    model.query
+        activeDescendant attributes =
+            case model.selectedRecipe of
+                Just recipe ->
+                    (attribute "aria-activedescendant"
+                        recipe.name
+                    )
+                        :: attributes
+
+                Nothing ->
+                    attributes
+    in
+        div [ class "container", style [ ( "margin-top", "30px" ), ( "text-align", "center" ) ] ]
+            [ -- inline CSS (literal)
+              div [ class "row" ]
+                [ div [] [ calender model ] 
+                , div []
+                    (List.append
+                        [ input 
+                            (activeDescendant
+                                [ placeholder "recipe name"
+                                , onInput SetQuery
+                                , onFocus OnFocus
+                                , onWithOptions "keydown" options dec
+                                , value query
+                                , id "president-input"
+                                , class "autocomplete-input"
+                                , autocomplete False
+                                , attribute "aria-owns" "list-of-presidents"
+                                , attribute "aria-expanded" <| String.toLower <| toString model.showMenu
+                                , attribute "aria-haspopup" <| String.toLower <| toString model.showMenu
+                                , attribute "role" "combobox"
+                                , attribute "aria-autocomplete" "list"
+                                ]
+                            )
+                            []
+                        ]
+                        menu
+                    )
+                ]
+            ]
+
+viewMenu : Model -> Html Msg
+viewMenu model =
+    div [ class "autocomplete-menu" ]
+        [ Html.map SetAutoState (Autocomplete.view viewConfig 5 model.autoState (searchRecipe model.query)) ]
+
+viewConfig : Autocomplete.ViewConfig Recipe
+viewConfig =
+    let
+        customizedLi keySelected mouseSelected recipe =
+            { attributes =
+                [ classList [ ( "autocomplete-item", True ), ( "key-selected", keySelected || mouseSelected ) ]
+                , id recipe.name
+                ]
+            , children = [ Html.text recipe.name ]
+            }
+    in
+        Autocomplete.viewConfig
+            { toId = .name
+            , ul = [ class "autocomplete-list" ]
+            , li = customizedLi
+            }
 
 calenderHeader : Html Msg
 calenderHeader =
@@ -354,33 +517,7 @@ calender model =
 
 recipeOption : Recipe -> Html Msg
 recipeOption recipe =
-    option [ Html.Attributes.value (toString recipe.id) ] [ text (recipe.name) ]
-
-
-recipeSingle : Recipe -> Html Msg
-recipeSingle recipe =
-    li [ classList [ ("recipe", True), ("editing", recipe.editing) ]]
-        [ div
-            [ class "view" ]
-            [ label
-                [ onDoubleClick (EditRecipe recipe.id True) ]
-                [ text recipe.name ]
-            ]
-        , input
-            [ class "edit"
-            , value recipe.name
-            , id ("recipe-" ++ toString recipe.id)
-            , onInput (UpdateRecipe recipe.id)
-            --, onBlur (EditRecipe recipe.id False)
-            , onEnter (EditRecipe recipe.id False)
-            ]
-            []
-        ]
-
-
-recipeList : List Recipe -> Html Msg
-recipeList recipes =
-    ul [ class "recipe-list" ] (List.map recipeSingle recipes)
+    option [ Html.Attributes.value (toString recipe.name) ] [ text (recipe.name) ]
 
 viewWeek : Model -> Html Msg
 viewWeek model =
@@ -410,7 +547,6 @@ viewDay model day =
                 , onEnter (EditDayRecipe day.id False)
                 --, onBlur (EditDayRecipe day.id False)
                 , onInput (UpdateDayRecipe day.id)
-                , onArrowDown SelectResultRecipe
                 ]
                 []
             ]
