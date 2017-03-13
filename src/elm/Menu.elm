@@ -41,6 +41,7 @@ type alias Model =
     , recipeResults : List Recipe
     , selectedResultRecipe : Int
     , autoState: Autocomplete.State
+    , query: String
     }
 
 
@@ -54,6 +55,7 @@ model =
     , recipeResults = []
     , selectedResultRecipe = -1
     , autoState = Autocomplete.empty
+    , query = ""
     }
 
 
@@ -117,6 +119,8 @@ type Msg
     | UpdateDayRecipe Int String
     | SelectDayRecipe Int String
     | SelectResultRecipe
+    | SetAutocompleteState Autocomplete.Msg
+    | SelectRecipe Int
 
 
 
@@ -196,6 +200,33 @@ update msg model =
                         
             in
               {model | recipeResults = List.map updateRecipe model.recipeResults, selectedResultRecipe = next.id} ! []
+        SetAutocompleteState autoMsg ->
+            let
+                (newState, maybeMsg) =
+                    Autocomplete.update updateConfig autoMsg 5 model.autoState (searchRecipe model.query recipes)
+            in
+                { model | autoState = newState } ! []
+        
+              
+
+updateConfig : Autocomplete.UpdateConfig Msg Recipe
+updateConfig =
+        Autocomplete.updateConfig
+        { toId = .name
+        , onKeyDown =
+            \code maybeId ->
+                if code == 13 then
+                    Maybe.map SelectRecipe maybeId
+                else
+                    Nothing
+        , onTooLow = Nothing
+        , onTooHigh = Nothing
+        , onMouseEnter = \_ -> Nothing
+        , onMouseLeave = \_ -> Nothing
+        , onMouseClick = \id -> Just <| SelectRecipe id
+        , separateSelections = False
+        }
+
 
 getNextResultRecipe : Int -> List Recipe -> Recipe
 getNextResultRecipe previousId resultRecipes =
