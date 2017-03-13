@@ -19,9 +19,12 @@ main =
         { init = init
         , view = view
         , update = update
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         }
 
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.map SetAutoState Autocomplete.subscription
 
 init : ( Model, Cmd Msg )
 init =
